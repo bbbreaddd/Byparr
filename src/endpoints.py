@@ -82,21 +82,39 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                 "#cf-browser-verification",  # Cloudflare
                 ".ray_id",                   # Cloudflare
                 "text='Checking your browser'",
-                "text='Verifying you are human'"
+                "text='Verifying you are human'",
+                "text='Please wait a few seconds'"
             ]
             
+            # Check for selectors
+            detected = False
             for selector in challenge_selectors:
                 try:
-                    # If we find a challenge element, wait for it to disappear
                     element = await dep.page.query_selector(selector)
                     if element and await element.is_visible():
                         logger.info(f"Challenge detected ({selector}), waiting for resolution...")
                         await dep.page.wait_for_selector(selector, state="hidden", timeout=30000)
-                        logger.info("Challenge resolved! Waiting 1s for page to settle...")
-                        await asyncio.sleep(1)
+                        detected = True
                         break
                 except Exception:
                     continue
+
+            # Check for Heuristic: Empty title + Spinner style
+            if not detected:
+                title = await dep.page.title()
+                body = await dep.page.content()
+                if not title.strip() and "animation:r 0.6s linear infinite" in body:
+                    logger.info("Heuristic challenge detected (Empty title + Spinner), waiting...")
+                    # Wait for title to appear or content to change significantly
+                    try:
+                        await dep.page.wait_for_function("document.title.trim().length > 0", timeout=30000)
+                        detected = True
+                    except Exception:
+                        logger.warning("Timed out waiting for title to appear")
+
+            if detected:
+                logger.info("Challenge resolved! Waiting 2s for page to settle...")
+                await asyncio.sleep(2)
 
         if await dep.page.title() in CHALLENGE_TITLES:
             logger.info("Challenge detected, attempting to solve...")
