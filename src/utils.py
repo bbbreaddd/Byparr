@@ -117,6 +117,15 @@ async def get_camoufox(
             viewport={"width": 1920, "height": 1080}
         )
         page = await context.new_page()
+
+        # Optimization: Block unnecessary resources to save CPU/Memory
+        async def block_resources(route):
+            if route.request.resource_type in ["image", "media", "font"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        await page.route("**/*", block_resources)
+
         async with ClickSolver(
             framework=FrameworkType.CAMOUFOX,
             page=page,
