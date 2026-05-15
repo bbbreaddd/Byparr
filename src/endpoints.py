@@ -68,6 +68,11 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
         await dep.page.wait_for_load_state(
             "networkidle", timeout=timer.remaining() * 1000
         )
+        
+        if request.wait > 0:
+            logger.info("Waiting for %s seconds as requested", request.wait)
+            import asyncio
+            await asyncio.sleep(request.wait)
 
         if await dep.page.title() in CHALLENGE_TITLES:
             logger.info("Challenge detected, attempting to solve...")
@@ -92,6 +97,14 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
 
     cookies = await dep.context.cookies()
 
+    screenshot_b64 = None
+    try:
+        screenshot_bytes = await dep.page.screenshot(full_page=True, type="png")
+        import base64
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+    except Exception as e:
+        logger.warning("Failed to capture screenshot: %s", e)
+
     return LinkResponse(
         message="Success",
         solution=Solution(
@@ -101,6 +114,7 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
             cookies=cookies,
             headers=page_request.headers if page_request else {},
             response=await dep.page.content(),
+            screenshot=screenshot_b64,
         ),
         start_timestamp=start_time,
     )

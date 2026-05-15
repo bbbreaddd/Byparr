@@ -70,6 +70,13 @@ async def get_camoufox(
             alias="X-Proxy-Password",
         ),
     ] = None,
+    x_user_agent: Annotated[
+        str | None,
+        Header(
+            alias="X-User-Agent",
+            description="Override the default User-Agent.",
+        ),
+    ] = None,
 ) -> AsyncGenerator[CamoufoxDepClass]:
     """Get Camoufox instance."""
     header_server = x_proxy_server
@@ -105,7 +112,10 @@ async def get_camoufox(
     ) as browser_raw:
         # Cast to Browser since AsyncCamoufox always returns a Browser, not BrowserContext
         browser = cast("Browser", browser_raw)
-        context = await browser.new_context()
+        context = await browser.new_context(
+            user_agent=x_user_agent,
+            viewport={"width": 1920, "height": 1080}
+        )
         page = await context.new_page()
         async with ClickSolver(
             framework=FrameworkType.CAMOUFOX,

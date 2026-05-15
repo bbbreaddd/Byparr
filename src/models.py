@@ -21,6 +21,14 @@ class LinkRequest(BaseModel):
         default=60,
         description="Maximum timeout in seconds for resolving the anti-bot challenge.",
     )
+    wait: int = Field(
+        default=0,
+        description="Time to wait in seconds after the page has loaded.",
+    )
+    user_agent: str | None = Field(
+        default=None,
+        description="Override the default User-Agent.",
+    )
 
 
 class HealthcheckResponse(BaseModel):
@@ -38,6 +46,7 @@ class Solution(BaseModel):
     user_agent: str = ""
     headers: dict[str, Any] = {}
     response: str = ""
+    screenshot: str | None = None
 
 
 class LinkResponse(BaseModel):

@@ -16,7 +16,8 @@ ENV GITHUB_BUILD=${GITHUB_BUILD}\
     HOME=/tmp
 
 RUN apt-get update &&\
-    apt-get install -y --no-install-recommends curl ca-certificates &&\
+    apt-get install -y --no-install-recommends \
+    curl ca-certificates libgtk-3-0 libdbus-glib-1-2 libxt6 libasound2t64 libnss3 libx11-xcb1 libgbm1 &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
