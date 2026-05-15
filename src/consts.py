@@ -30,7 +30,9 @@ CHALLENGE_TITLES_MAP: dict[CaptchaType, list[str]] = {
         "Please wait...", 
         "Verify you are human",
         "DDoS protection",
-        "Cloudflare"
+        "Cloudflare",
+        "Making sure you're not a bot!",
+        "Anubis"
     ],
 }
 
