@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import time
 import warnings
 from asyncio import wait_for
@@ -69,10 +71,32 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
             "networkidle", timeout=timer.remaining() * 1000
         )
         
-        if request.wait > 0:
-            logger.info("Waiting for %s seconds as requested", request.wait)
-            import asyncio
+        # Smart Wait logic: Detect and wait for challenges to resolve
+        if request.wait:
+            logger.info(f"Waiting for {request.wait} seconds as requested")
             await asyncio.sleep(request.wait)
+        else:
+            # Check for common challenge indicators
+            challenge_selectors = [
+                "#ddg-l10n-title",          # DDoS-Guard
+                "#cf-browser-verification",  # Cloudflare
+                ".ray_id",                   # Cloudflare
+                "text='Checking your browser'",
+                "text='Verifying you are human'"
+            ]
+            
+            for selector in challenge_selectors:
+                try:
+                    # If we find a challenge element, wait for it to disappear
+                    element = await dep.page.query_selector(selector)
+                    if element and await element.is_visible():
+                        logger.info(f"Challenge detected ({selector}), waiting for resolution...")
+                        await dep.page.wait_for_selector(selector, state="hidden", timeout=30000)
+                        logger.info("Challenge resolved! Waiting 1s for page to settle...")
+                        await asyncio.sleep(1)
+                        break
+                except Exception:
+                    continue
 
         if await dep.page.title() in CHALLENGE_TITLES:
             logger.info("Challenge detected, attempting to solve...")
