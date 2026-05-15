@@ -23,8 +23,15 @@ HOST = os.getenv("HOST", "0.0.0.0")  # noqa: S104
 PORT = int(os.getenv("PORT", "8191"))
 
 CHALLENGE_TITLES_MAP: dict[CaptchaType, list[str]] = {
-    # Cloudflare
-    CaptchaType.CLOUDFLARE_INTERSTITIAL: ["Just a moment..."],
+    # Cloudflare & Generic
+    CaptchaType.CLOUDFLARE_INTERSTITIAL: [
+        "Just a moment...", 
+        "Checking your browser...", 
+        "Please wait...", 
+        "Verify you are human",
+        "DDoS protection",
+        "Cloudflare"
+    ],
 }
 
 CHALLENGE_TITLES = [

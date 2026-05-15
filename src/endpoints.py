@@ -88,6 +88,9 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
             
             # Check for selectors
             detected = False
+            initial_status = status
+            
+            # 1. Selector-based detection
             for selector in challenge_selectors:
                 try:
                     element = await dep.page.query_selector(selector)
@@ -99,37 +102,75 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                 except Exception:
                     continue
 
-            # Check for Heuristic: Empty title + Spinner style
+            # 2. Heuristic-based detection (Title or Spinner)
             if not detected:
                 title = await dep.page.title()
                 body = await dep.page.content()
-                if not title.strip() and "animation:r 0.6s linear infinite" in body:
-                    logger.info("Heuristic challenge detected (Empty title + Spinner), waiting...")
-                    # Wait for title to appear or content to change significantly
+                
+                # Check for common challenge titles or the spinner heuristic
+                is_challenge_title = any(kw in title for kw in CHALLENGE_TITLES)
+                if is_challenge_title or (not title.strip() and "animation:" in body):
+                    logger.info(f"Challenge suspected (Title: '{title}'), waiting for resolution...")
                     try:
-                        await dep.page.wait_for_function("document.title.trim().length > 0", timeout=30000)
+                        # Wait for title to change to something non-challenge AND spinner to disappear
+                        await dep.page.wait_for_function(
+                            f"() => {{ \
+                                const t = document.title.trim(); \
+                                const b = document.body ? document.body.innerHTML : ''; \
+                                const challengeKeywords = {json.dumps(CHALLENGE_TITLES)}; \
+                                const isChallenge = challengeKeywords.some(kw => t.includes(kw)); \
+                                return t.length > 0 && !isChallenge && !b.includes('animation:') && !b.includes('spinner'); \
+                            }}", 
+                            timeout=30000
+                        )
                         detected = True
                     except Exception:
-                        logger.warning("Timed out waiting for title to appear")
+                        logger.warning("Timed out waiting for challenge resolution heuristic")
 
-            if detected:
-                logger.info("Challenge resolved! Waiting 2s for page to settle...")
-                await asyncio.sleep(2)
+            # 3. Aggressive solving if still in challenge state
+            curr_title = await dep.page.title()
+            if any(kw in curr_title for kw in CHALLENGE_TITLES):
+                logger.info("Challenge title still present, attempting captcha solver...")
+                try:
+                    await wait_for(
+                        dep.solver.solve_captcha(
+                            captcha_container=dep.page,
+                            captcha_type=CaptchaType.CLOUDFLARE_INTERSTITIAL,
+                            wait_checkbox_attempts=2,
+                            wait_checkbox_delay=1.0,
+                        ),
+                        timeout=min(timer.remaining(), 30),
+                    )
+                    detected = True
+                    status = HTTPStatus.OK
+                except Exception as e:
+                    logger.warning(f"Captcha solver failed or timed out: {e}")
 
-        if await dep.page.title() in CHALLENGE_TITLES:
-            logger.info("Challenge detected, attempting to solve...")
-            # Solve the captcha
-            await wait_for(
-                dep.solver.solve_captcha(  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
-                    captcha_container=dep.page,
-                    captcha_type=CaptchaType.CLOUDFLARE_INTERSTITIAL,
-                    wait_checkbox_attempts=1,
-                    wait_checkbox_delay=0.5,
-                ),
-                timeout=timer.remaining(),
-            )
-            status = HTTPStatus.OK
-            logger.debug("Challenge solved successfully.")
+            # 4. Final Status Re-verification
+            if detected or initial_status != 200:
+                if detected:
+                    logger.info("Challenge resolved! Waiting 2s for page to settle...")
+                    await asyncio.sleep(2)
+                
+                logger.info(f"Re-verifying status (Initial: {initial_status})...")
+                try:
+                    # 1. Try Performance API (Most accurate for current page status)
+                    perf_status = await dep.page.evaluate("() => { \
+                        const nav = performance.getEntriesByType('navigation')[0]; \
+                        return nav ? nav.responseStatus : null; \
+                    }")
+                    
+                    if perf_status and perf_status > 0:
+                        status = perf_status
+                        logger.info(f"Status re-verified via Performance API: {status}")
+                    else:
+                        # 2. Fallback to lightweight fetch
+                        final_resp = await dep.page.request.get(dep.page.url)
+                        status = final_resp.status
+                        logger.info(f"Status re-verified via Fetch: {status}")
+                except Exception as e:
+                    logger.warning(f"Failed to re-verify status: {e}")
+
     except TimeoutError as e:
         logger.error("Timed out while solving the challenge")
         raise HTTPException(
