@@ -114,7 +114,8 @@ async def get_camoufox(
         browser = cast("Browser", browser_raw)
         context = await browser.new_context(
             user_agent=x_user_agent,
-            viewport={"width": 1920, "height": 1080}
+            viewport={"width": 1920, "height": 1080},
+            ignore_https_errors=True
         )
         page = await context.new_page()
 

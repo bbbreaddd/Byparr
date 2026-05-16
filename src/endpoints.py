@@ -68,10 +68,6 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
         await dep.page.wait_for_load_state(
             state="domcontentloaded", timeout=timer.remaining() * 1000
         )
-        await dep.page.wait_for_load_state(
-            "networkidle", timeout=timer.remaining() * 1000
-        )
-        
         # Smart Wait logic: Detect and wait for challenges to resolve
         if request.wait:
             logger.info(f"Waiting for {request.wait} seconds as requested")
@@ -97,7 +93,7 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                     element = await dep.page.query_selector(selector)
                     if element and await element.is_visible():
                         logger.info(f"Challenge detected ({selector}), waiting for resolution...")
-                        await dep.page.wait_for_selector(selector, state="hidden", timeout=30000)
+                        await dep.page.wait_for_selector(selector, state="hidden", timeout=8000)
                         detected = True
                         break
                 except Exception:
@@ -122,7 +118,7 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                                 const isChallenge = challengeKeywords.some(kw => t.includes(kw)); \
                                 return t.length > 0 && !isChallenge && !b.includes('animation:') && !b.includes('spinner'); \
                             }}", 
-                            timeout=30000
+                            timeout=8000
                         )
                         detected = True
                     except Exception:
@@ -140,7 +136,7 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                             wait_checkbox_attempts=2,
                             wait_checkbox_delay=1.0,
                         ),
-                        timeout=min(timer.remaining(), 30),
+                        timeout=min(timer.remaining(), 8),
                     )
                     detected = True
                     status = HTTPStatus.OK
