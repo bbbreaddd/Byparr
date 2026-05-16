@@ -11,12 +11,20 @@ from fastapi.middleware.gzip import GZipMiddleware
 from src.consts import HOST, LOG_LEVEL, PORT, VERSION
 from src.endpoints import health_check, router
 from src.middlewares import LogRequest
-from src.utils import get_camoufox, logger
+from contextlib import asynccontextmanager
+from src.utils import get_camoufox, logger, close_browser
 
 logger.info("Using version %s", VERSION)
 logger.info("Log level set to %s", logging.getLevelName(LOG_LEVEL))
 
-app = FastAPI(debug=LOG_LEVEL == logging.DEBUG)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: the browser will be initialized on the first request via get_browser()
+    yield
+    # Shutdown: close the global browser instance
+    await close_browser()
+
+app = FastAPI(debug=LOG_LEVEL == logging.DEBUG, lifespan=lifespan)
 app.add_middleware(GZipMiddleware)
 app.add_middleware(LogRequest)
 

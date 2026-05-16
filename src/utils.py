@@ -34,6 +34,12 @@ logger.setLevel(LOG_LEVEL)
 if len(logger.handlers) == 0:
     logger.addHandler(logging.StreamHandler())
 
+# Global browser instance for singleton reuse
+_GLOBAL_BROWSER: Browser | None = None
+_BROWSER_LOCK = asyncio.Lock()
+_REQUEST_COUNT = 0
+_MAX_REQUESTS_PER_BROWSER = 50
+
 
 class TimeoutTimer(BaseModel):
     duration: int  # in seconds
@@ -48,6 +54,42 @@ class CamoufoxDepClass(NamedTuple):
     page: Page
     solver: ClickSolver
     context: BrowserContext
+
+
+async def get_browser() -> Browser:
+    """Gets or creates the global browser instance with rotation logic."""
+    global _GLOBAL_BROWSER, _REQUEST_COUNT
+    async with _BROWSER_LOCK:
+        # Check if browser needs rotation
+        if _GLOBAL_BROWSER is not None and _REQUEST_COUNT >= _MAX_REQUESTS_PER_BROWSER:
+            logger.info("Browser rotation limit reached. Restarting Camoufox...")
+            await _GLOBAL_BROWSER.close()
+            _GLOBAL_BROWSER = None
+            _REQUEST_COUNT = 0
+
+        if _GLOBAL_BROWSER is None:
+            logger.info("Initializing global Camoufox browser instance...")
+            _GLOBAL_BROWSER = await AsyncCamoufox(
+                main_world_eval=True,
+                addons=[ADDON_PATH],
+                geoip=True,
+                locale="en-US",
+                headless=True,
+                humanize=True,
+                i_know_what_im_doing=True,
+                config={"forceScopeAccess": True},
+                disable_coop=True,
+            ).start()
+        return _GLOBAL_BROWSER
+
+async def close_browser():
+    """Closes the global browser instance."""
+    global _GLOBAL_BROWSER
+    async with _BROWSER_LOCK:
+        if _GLOBAL_BROWSER is not None:
+            logger.info("Closing global browser instance...")
+            await _GLOBAL_BROWSER.close()
+            _GLOBAL_BROWSER = None
 
 
 async def get_camoufox(
@@ -78,18 +120,20 @@ async def get_camoufox(
         ),
     ] = None,
 ) -> AsyncGenerator[CamoufoxDepClass]:
-    """Get Camoufox instance."""
-    header_server = x_proxy_server
-    header_username = x_proxy_username
-    header_password = x_proxy_password
-
+    """Yields a fresh page and context from the global browser instance."""
+    global _REQUEST_COUNT
+    browser = await get_browser()
+    
+    async with _BROWSER_LOCK:
+        _REQUEST_COUNT += 1
+        logger.debug(f"Request count: {_REQUEST_COUNT}/{_MAX_REQUESTS_PER_BROWSER}")
+    
     proxy_config = None
-
-    if header_server:
+    if x_proxy_server:
         proxy_config = {
-            "server": header_server,
-            "username": header_username,
-            "password": header_password,
+            "server": x_proxy_server,
+            "username": x_proxy_username,
+            "password": x_proxy_password,
         }
     elif PROXY_SERVER:
         proxy_config = {
@@ -98,25 +142,15 @@ async def get_camoufox(
             "password": PROXY_PASSWORD,
         }
 
-    async with AsyncCamoufox(
-        main_world_eval=True,
-        addons=[ADDON_PATH],
-        geoip=True,
-        proxy=proxy_config,
-        locale="en-US",
-        headless=True,
-        humanize=True,
-        i_know_what_im_doing=True,
-        config={"forceScopeAccess": True},  # add this when creating Camoufox instance
-        disable_coop=True,  # add this when creating Camoufox instance
-    ) as browser_raw:
-        # Cast to Browser since AsyncCamoufox always returns a Browser, not BrowserContext
-        browser = cast("Browser", browser_raw)
-        context = await browser.new_context(
-            user_agent=x_user_agent,
-            viewport={"width": 1920, "height": 1080},
-            ignore_https_errors=True
-        )
+    # Use a fresh context for each request for isolation and proxy support
+    context = await browser.new_context(
+        user_agent=x_user_agent,
+        viewport={"width": 1920, "height": 1080},
+        ignore_https_errors=True,
+        proxy=proxy_config
+    )
+    
+    try:
         page = await context.new_page()
 
         # Optimization: Block unnecessary resources to save CPU/Memory
@@ -125,6 +159,7 @@ async def get_camoufox(
                 await route.abort()
             else:
                 await route.continue_()
+        
         await page.route("**/*", block_resources)
 
         async with ClickSolver(
@@ -134,3 +169,7 @@ async def get_camoufox(
             attempt_delay=1,
         ) as solver:
             yield CamoufoxDepClass(page, solver, context)
+            
+    finally:
+        # Always close the context to free up RAM, but keep the browser running
+        await context.close()
