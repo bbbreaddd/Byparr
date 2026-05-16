@@ -16,7 +16,7 @@ from src.utils import get_camoufox, logger
 logger.info("Using version %s", VERSION)
 logger.info("Log level set to %s", logging.getLevelName(LOG_LEVEL))
 
-app = FastAPI(debug=LOG_LEVEL == logging.DEBUG, log_level=LOG_LEVEL)
+app = FastAPI(debug=LOG_LEVEL == logging.DEBUG)
 app.add_middleware(GZipMiddleware)
 app.add_middleware(LogRequest)
 
