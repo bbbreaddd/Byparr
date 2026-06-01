@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from playwright_captcha import CaptchaType
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from src.consts import CHALLENGE_TITLES
 from src.models import (
@@ -185,7 +186,7 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                 except Exception as e:
                     logger.warning(f"Failed to re-verify status: {e}")
 
-    except TimeoutError as e:
+    except (TimeoutError, PlaywrightTimeoutError) as e:
         logger.error("Timed out while solving the challenge")
         raise HTTPException(
             status_code=408,
