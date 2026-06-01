@@ -179,7 +179,7 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
 
     screenshot_b64 = None
     try:
-        screenshot_bytes = await dep.page.screenshot(full_page=True, type="png")
+        screenshot_bytes = await dep.page.screenshot(full_page=False, type="png")
         import base64
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
     except Exception as e:
