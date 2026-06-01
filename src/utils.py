@@ -156,7 +156,7 @@ async def get_camoufox(
 
         # Optimization: Block unnecessary resources to save CPU/Memory
         async def block_resources(route):
-            if route.request.resource_type in ["image", "media", "font"]:
+            if route.request.resource_type in ["media", "font"]:
                 await route.abort()
             else:
                 await route.continue_()

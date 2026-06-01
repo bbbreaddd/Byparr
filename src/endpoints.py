@@ -38,18 +38,20 @@ def read_root():
 @router.get("/health")
 async def health_check(sb: CamoufoxDep):
     """Health check endpoint."""
-    health_check_request = await read_item(
-        LinkRequest.model_construct(url="https://google.com"),
-        sb,
-    )
-
-    if health_check_request.solution.status != HTTPStatus.OK:
+    try:
+        await sb.page.goto("about:blank")
+        ua = await sb.page.evaluate("navigator.userAgent")
+        val = await sb.page.evaluate("1 + 1")
+        if val != 2:
+            raise Exception("Javascript evaluation failed")
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail="Health check failed",
+            detail=f"Health check failed: {e}",
         )
 
-    return HealthcheckResponse(user_agent=health_check_request.solution.user_agent)
+    return HealthcheckResponse(user_agent=ua)
 
 
 @router.post("/v1")
@@ -75,7 +77,6 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
         else:
             # Check for common challenge indicators
             challenge_selectors = [
-                "#ddg-l10n-title",          # DDoS-Guard
                 "#cf-browser-verification",  # Cloudflare
                 ".ray_id",                   # Cloudflare
                 "text='Checking your browser'",
@@ -93,8 +94,19 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                     element = await dep.page.query_selector(selector)
                     if element and await element.is_visible():
                         logger.info(f"Challenge detected ({selector}), waiting for resolution...")
-                        await dep.page.wait_for_selector(selector, state="hidden", timeout=8000)
-                        detected = True
+                        # Wait up to 30 seconds for the selector to go away permanently
+                        for _ in range(30):
+                            try:
+                                await dep.page.wait_for_selector(selector, state="hidden", timeout=1000)
+                                # Once hidden, wait a bit and check if it came back (reload/refresh)
+                                await asyncio.sleep(1)
+                                element_now = await dep.page.query_selector(selector)
+                                if not element_now or not await element_now.is_visible():
+                                    detected = True
+                                    break
+                            except Exception:
+                                # Timeout waiting for it to be hidden this second, keep looping
+                                pass
                         break
                 except Exception:
                     continue
@@ -109,20 +121,25 @@ async def read_item(request: LinkRequest, dep: CamoufoxDep) -> LinkResponse:
                 if is_challenge_title or (not title.strip() and "animation:" in body):
                     logger.info(f"Challenge suspected (Title: '{title}'), waiting for resolution...")
                     try:
-                        # Wait for title to change to something non-challenge AND spinner to disappear
-                        await dep.page.wait_for_function(
-                            f"() => {{ \
-                                const t = document.title.trim(); \
-                                const b = document.body ? document.body.innerHTML : ''; \
-                                const challengeKeywords = {json.dumps(CHALLENGE_TITLES)}; \
-                                const isChallenge = challengeKeywords.some(kw => t.includes(kw)); \
-                                return t.length > 0 && !isChallenge && !b.includes('animation:') && !b.includes('spinner'); \
-                            }}", 
-                            timeout=8000
-                        )
-                        detected = True
-                    except Exception:
-                        logger.warning("Timed out waiting for challenge resolution heuristic")
+                        # Wait up to 30 seconds for the challenge to resolve in Python
+                        for _ in range(30):
+                            try:
+                                curr_title = await dep.page.title()
+                                curr_body = await dep.page.content()
+                                curr_challenge = any(kw in curr_title for kw in CHALLENGE_TITLES)
+                                ready_state = await dep.page.evaluate("document.readyState")
+                                if (ready_state == "complete" and curr_title.strip() 
+                                        and not curr_challenge 
+                                        and "animation:" not in curr_body 
+                                        and "spinner" not in curr_body):
+                                    detected = True
+                                    break
+                            except Exception:
+                                # Context might be temporarily destroyed during navigation
+                                pass
+                            await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.warning(f"Error waiting for challenge resolution: {e}")
 
             # 3. Aggressive solving if still in challenge state
             curr_title = await dep.page.title()
